@@ -31,16 +31,20 @@
 </head>
 <body>
     <div class="app-container" id="app"></div>
+    
+    <!-- Hidden Inputs -->
+    <input type="file" id="file-upload" accept="image/*" style="display:none" onchange="handleFileUpload(this)">
+    <input type="file" id="backup-upload" accept=".json" style="display:none" onchange="handleBackupUpload(this)">
 
     <script>
         // --- CONFIG ---
-        const APP_KEY = "leftoverchef_master_v34";
+        const APP_KEY = "leftoverchef_final_store"; 
         const DEFAULT_MODEL = "gemini-1.5-flash";
 
         function loadData() {
             try {
                 let saved = localStorage.getItem(APP_KEY);
-                if (!saved) saved = localStorage.getItem("leftoverchef_master_v33"); 
+                if (!saved) saved = localStorage.getItem("leftoverchef_master_v36"); // Migration check
                 if(saved) return JSON.parse(saved);
             } catch(e) { console.error(e); }
             return { 
@@ -75,19 +79,12 @@
             userXP: persistedData.userXP || 0, recipesCooked: persistedData.recipesCooked || 0, moneySaved: persistedData.moneySaved || 0,
             cart: persistedData.cart || [], aiModel: persistedData.aiModel || DEFAULT_MODEL,
             cookbookFilter: 'all', cookbookSort: 'newest', cookbookSearch: '', tempIngredients: [], prefilledData: null, cameraStream: null, aiStatus: "", selectedRecipeId: null,
-            scanMode: 'fridge' // 'fridge' or 'book'
+            scanMode: 'fridge' 
         };
 
         const CATEGORIES = [{ id: 'all', label: 'Alle' }, { id: 'breakfast', label: 'Frühstück' }, { id: 'lunch', label: 'Mittag' }, { id: 'dinner', label: 'Abend' }, { id: 'snack', label: 'Snack' }, { id: 'drink', label: 'Drinks' }];
         const LEVELS = [{ name: "Tellerwäscher", xp: 0 }, { name: "Küchenhilfe", xp: 100 }, { name: "Sous Chef", xp: 300 }, { name: "Küchenchef", xp: 600 }, { name: "Sternekoch", xp: 1000 }];
-        
-        const AI_MODELS = [
-            { id: "gemini-1.5-flash", name: "Flash 1.5 (Standard)" },
-            { id: "gemini-1.5-flash-latest", name: "Flash 1.5 (Latest)" },
-            { id: "gemini-1.5-flash-001", name: "Flash 1.5 (v001)" },
-            { id: "gemini-1.5-flash-002", name: "Flash 1.5 (v002)" },
-            { id: "gemini-1.5-pro", name: "Pro 1.5 (Powerful)" }
-        ];
+        const AI_MODELS = [{ id: "gemini-1.5-flash", name: "Flash 1.5 (Standard)" }, { id: "gemini-1.5-flash-latest", name: "Flash 1.5 (Latest)" }, { id: "gemini-1.5-pro", name: "Pro 1.5 (Powerful)" }];
 
         // --- GEMINI API ---
         async function fetchAvailableModels(apiKey) {
@@ -99,18 +96,15 @@
             } catch(e) { return []; }
         }
 
-        async function callGeminiHtmlAnalysis(htmlString) {
-            if (!state.apiKey) return null;
-            const key = state.apiKey.trim();
-            // Limit HTML string length to avoid token limits (Flash has large context but still)
-            const truncatedHtml = htmlString.substring(0, 100000); 
-            
-            try {
+        async function callGeminiTextAnalysis(textInput) {
+             if (!state.apiKey) return null;
+             const key = state.apiKey.trim();
+             try {
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${state.aiModel}:generateContent?key=${key}`, {
                     method: "POST", 
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ 
-                        contents: [{ parts: [{ text: `Extrahiere das Rezept aus diesem HTML Quelltext. Ignoriere Navigation, Werbung usw. Antworte NUR mit validem JSON: {"title": "Rezept Titel", "desc": "Zubereitungsschritte", "category": "dinner" (oder breakfast, lunch, snack, drink), "ingredients": [{"amount": "Menge", "unit": "Einheit", "name": "Zutat"}]}. HTML: ${truncatedHtml}` }] }],
+                        contents: [{ parts: [{ text: `Analysiere diesen Text und extrahiere das Rezept. Antworte NUR mit validem JSON: {"title": "Titel", "desc": "Zubereitung", "category": "dinner", "ingredients": [{"amount": "Menge", "unit": "Einheit", "name": "Zutat"}]}. Text: ${textInput}` }] }],
                         generationConfig: { response_mime_type: "application/json" } 
                     })
                 });
@@ -118,16 +112,13 @@
                 if(data.error) throw new Error(data.error.message);
                 let text = data.candidates[0].content.parts[0].text;
                 return JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
-            } catch (e) { 
-                handleAiError(e); return null; 
-            }
+            } catch (e) { handleAiError(e); return null; }
         }
 
         async function callGeminiVision(base64Image, prompt) {
             if (!state.apiKey) return null;
             const key = state.apiKey.trim();
             const cleanBase64 = base64Image.split(',')[1];
-            
             try {
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${state.aiModel}:generateContent?key=${key}`, {
                     method: "POST", 
@@ -142,10 +133,7 @@
                 let text = data.candidates[0].content.parts[0].text;
                 text = text.replace(/```json/g, '').replace(/```/g, '').trim();
                 return JSON.parse(text);
-            } catch (e) { 
-                console.error("JSON Error, retrying raw...", e);
-                try { throw e; } catch(e2) { handleAiError(e); return null; }
-            }
+            } catch (e) { try { throw e; } catch(e2) { handleAiError(e); return null; } }
         }
 
         async function callGeminiRecipe(ingredientsList) {
@@ -158,9 +146,9 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ 
                         contents: [{ parts: [{ text: `
-                            Du bist ein Profikoch.
+                            Profikoch Modus.
                             1. Erstelle ein Rezept aus: ${ingString}.
-                            2. Schreibe dazu einen kurzen englischen Bild-Prompt für das Gericht (z.B. "Delicious pasta with tomato sauce on a wooden table, 4k, photorealistic").
+                            2. Schreibe einen englischen Bild-Prompt (z.B. "Delicious pasta...").
                             3. Antworte NUR mit validem JSON: 
                             {"title":"Name","desc":"Anleitung","time":"20 Min","missing":"Zutat","image_prompt":"English visual description"}
                         ` }] }],
@@ -179,8 +167,8 @@
             console.error("AI Error:", e);
             let msg = e.message;
             if (msg.includes("API key not valid")) msg = "Der API Key ist falsch.";
-            if (msg.includes("JSON")) msg = "KI Antwort war kein gültiges JSON.";
-            if (msg.includes("not found")) msg = `Modell '${state.aiModel}' nicht gefunden. Bitte wähle ein anderes.`;
+            if (msg.includes("JSON")) msg = "KI Antwort war unverständlich (JSON Fehler).";
+            if (msg.includes("not found")) msg = `Modell '${state.aiModel}' nicht gefunden. Wähle ein anderes in den Einstellungen.`;
             alert(`⚠️ KI Fehler:\n${msg}`);
             transitionTo('settings');
         }
@@ -193,7 +181,6 @@
             const titleEl = document.getElementById('recipe-title');
             const descEl = document.getElementById('recipe-desc');
             const catEl = document.getElementById('recipe-category');
-            
             if(titleEl && data.title) titleEl.value = data.title;
             if(descEl && data.desc) descEl.value = data.desc;
             if(catEl && data.category) catEl.value = data.category;
@@ -217,53 +204,64 @@
         
         function switchTab(tab) { stopCamera(); state.activeTab = tab; state.screen = tab; render(); }
 
-        // LINK IMPORT LOGIC
-        async function startLinkImport() {
-            const url = document.getElementById('import-url').value;
-            if(!url) return alert("Bitte Link eingeben!");
+        // BACKUP ACTIONS
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(localStorage.getItem(APP_KEY));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "leftoverchef_backup.json");
+            document.body.appendChild(downloadAnchorNode); 
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
 
-            if(!state.apiKey) {
-                alert("⚠️ Bitte erst API Key in den Einstellungen eintragen.");
-                transitionTo('settings');
-                return;
-            }
-
-            state.screen = 'scanning'; // Show loader
-            state.aiStatus = "Lade Webseite...";
-            render();
-
-            try {
-                // Fetch via Proxy to bypass CORS
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-                const response = await fetch(proxyUrl);
-                const data = await response.json();
-                
-                if(!data.contents) throw new Error("Konnte Webseite nicht laden.");
-                
-                state.aiStatus = "Analysiere Rezept...";
-                render();
-
-                const recipeData = await callGeminiHtmlAnalysis(data.contents);
-                
-                if(recipeData) {
-                    state.prefilledData = recipeData;
-                    transitionTo('add-recipe');
-                } else {
-                    throw new Error("KI konnte kein Rezept finden.");
+        function triggerBackupUpload() { document.getElementById('backup-upload').click(); }
+        function handleBackupUpload(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if(data.userRecipes && data.userXP !== undefined) {
+                            localStorage.setItem(APP_KEY, JSON.stringify(data));
+                            const loaded = loadData();
+                            state = { ...state, ...loaded };
+                            alert("Daten erfolgreich wiederhergestellt!");
+                            render();
+                        } else { alert("Ungültige Backup-Datei."); }
+                    } catch(err) { alert("Fehler beim Lesen der Datei."); }
                 }
-
-            } catch(e) {
-                console.error(e);
-                alert("Fehler beim Import: " + e.message + "\n(Manche Seiten blockieren den Zugriff)");
-                transitionTo('import-link');
+                reader.readAsText(input.files[0]);
             }
         }
 
-        // BOOK SCAN LOGIC
-        function startBookScan() {
-            state.scanMode = 'book';
-            transitionTo('camera');
+        // FILE UPLOAD HANDLING
+        function triggerFileUpload() { document.getElementById('file-upload').click(); }
+        function handleFileUpload(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const base64 = e.target.result;
+                    state.screen = 'scanning'; render();
+                    if(state.scanMode === 'book') performBookOCR(base64);
+                    else performRealScan(base64);
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
         }
+
+        // IMPORT LOGIC
+        async function processTextImport() {
+            const text = document.getElementById('import-text').value;
+            if(!text) return alert("Bitte Text einfügen!");
+            if(!state.apiKey) { alert("Key fehlt!"); transitionTo('settings'); return; }
+            state.screen = 'scanning'; state.aiStatus = "Verarbeite Text..."; render();
+            const recipeData = await callGeminiTextAnalysis(text);
+            if(recipeData) { state.prefilledData = recipeData; transitionTo('add-recipe'); } 
+            else { alert("Konnte kein Rezept im Text finden."); transitionTo('import-text'); }
+        }
+
+        function startBookScan() { state.scanMode = 'book'; transitionTo('camera'); }
 
         async function startRealCamera(elemId) {
             const fallbackBtn = document.getElementById('camera-fallback-btn');
@@ -289,13 +287,9 @@
 
         function captureAndScan() {
             const video = document.getElementById('camera-feed');
-            
-            if(!state.apiKey || state.apiKey.length < 10) { 
-                alert("⚠️ Bitte erst API Key in den Einstellungen eintragen."); 
-                transitionTo('settings');
-                return; 
-            }
-
+            state.screen = 'scanning'; 
+            if(!state.apiKey || state.apiKey.length < 10) { alert("⚠️ Bitte erst API Key in den Einstellungen eintragen."); transitionTo('settings'); return; }
+            render();
             if(video && video.srcObject && !video.paused) {
                 try {
                     const canvas = document.createElement('canvas');
@@ -303,15 +297,8 @@
                     canvas.getContext('2d').drawImage(video, 0, 0);
                     const base64 = canvas.toDataURL('image/jpeg', 0.5);
                     stopCamera();
-                    
-                    state.screen = 'scanning';
-                    render();
-                    
-                    if(state.scanMode === 'book') {
-                        performBookOCR(base64);
-                    } else {
-                        performRealScan(base64);
-                    }
+                    if(state.scanMode === 'book') performBookOCR(base64);
+                    else performRealScan(base64);
                 } catch(e) { stopCamera(); performMockScan(); }
             } else { stopCamera(); setTimeout(performMockScan, 1500); }
         }
@@ -319,23 +306,16 @@
         async function performBookOCR(base64) {
             state.aiStatus = "Lese Buchseite..."; render();
             const prompt = "Extrahiere das Rezept aus diesem Bild. Antworte NUR als JSON: {\"title\": \"Titel\", \"desc\": \"Zubereitung als Text\", \"category\": \"dinner\", \"ingredients\": [{\"amount\": \"Zahl\", \"unit\": \"g/ml/Stk\", \"name\": \"Zutat\"}]}.";
-            
             const result = await callGeminiVision(base64, prompt);
-            if(result) {
-                state.prefilledData = result;
-                transitionTo('add-recipe');
-            } else {
-                alert("Konnte keinen Text erkennen.");
-                transitionTo('cookbook');
-            }
+            if(result) { state.prefilledData = result; transitionTo('add-recipe'); } 
+            else { alert("Fehler beim Lesen."); transitionTo('cookbook'); }
         }
 
         async function performRealScan(base64) {
             state.aiStatus = "Erkenne Lebensmittel..."; render();
             const prompt = "Identifiziere Lebensmittel auf dem Bild. Liste ALLE essbaren Dinge auf. Antworte NUR mit einem validen JSON Array. Format: [{'id':'x','name':'Name','icon':'fa-utensils'}]. Kein Markdown.";
             const result = await callGeminiVision(base64, prompt);
-            if(result && result.length > 0) { state.scannedIngredients = result; } 
-            else { state.scannedIngredients = []; }
+            if(result && result.length > 0) { state.scannedIngredients = result; } else { state.scannedIngredients = []; }
             state.selectedIngredients = [...state.scannedIngredients];
             transitionTo('verify');
         }
@@ -345,19 +325,15 @@
         async function findRecipe() {
             if(state.selectedIngredients.length === 0) return alert("Wähle Zutaten!");
             state.screen = 'scanning'; state.aiStatus = "Koche & Male..."; render();
-            
             let recipe = null;
             if (state.apiKey) recipe = await callGeminiRecipe(state.selectedIngredients);
-            
             window.currentResultRecipe = recipe || mockRecipe;
-            
             if (recipe && recipe.image_prompt) {
                 const safePrompt = encodeURIComponent(recipe.image_prompt);
                 window.currentResultRecipe.image = `https://image.pollinations.ai/prompt/${safePrompt}?nologo=true`;
             } else if(!window.currentResultRecipe.image) {
                 window.currentResultRecipe.image = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80";
             }
-            
             window.currentResultRecipe.myRating = 0; 
             transitionTo('results');
         }
@@ -374,8 +350,9 @@
         function saveSettings() {
             const key = document.getElementById('api-key-input').value.trim();
             const model = document.getElementById('model-select').value;
-            if(!key.startsWith("AIza")) { alert("Der Key ist ungültig. Er muss mit 'AIza' beginnen."); return; }
-            state.apiKey = key; state.aiModel = model; saveData(); alert("Gespeichert!"); transitionTo('profile');
+            if(key && !key.startsWith("AIza")) { alert("Der Key ist ungültig. Er muss mit 'AIza' beginnen."); return; }
+            state.apiKey = key; state.aiModel = model;
+            saveData(); alert("Gespeichert!"); transitionTo('profile');
         }
 
         async function loadModels() {
@@ -390,19 +367,8 @@
             } else { alert("Konnte keine Modelle laden."); }
         }
 
-        function rateRecipe(id, stars) {
-            const recipe = state.userRecipes.find(r => r.id === id);
-            if(recipe) { recipe.myRating = stars; saveData(); render(); }
-        }
-
-        function deleteRecipe(id) {
-            if(confirm("Rezept löschen?")) {
-                state.userRecipes = state.userRecipes.filter(r => r.id !== id);
-                saveData();
-                render();
-            }
-        }
-
+        function rateRecipe(id, stars) { const recipe = state.userRecipes.find(r => r.id === id); if(recipe) { recipe.myRating = stars; saveData(); render(); } }
+        function deleteRecipe(id) { if(confirm("Rezept wirklich löschen?")) { state.userRecipes = state.userRecipes.filter(r => r.id !== id); saveData(); render(); } }
         function addToCart(item) { if(!state.cart.includes(item)) { state.cart.push(item); saveData(); alert("Hinzugefügt!"); } render(); }
         function removeFromCart(i) { state.cart.splice(i, 1); saveData(); render(); }
         function addManualScanIngredient() { const name = document.getElementById('manual-ing-input').value; if(name) { state.scannedIngredients.push({id:'man_'+Date.now(),name:name,icon:'fa-plus'}); state.selectedIngredients.push(state.scannedIngredients[state.scannedIngredients.length-1]); render(); } }
@@ -435,8 +401,8 @@
                 case 'add-recipe': content = ScreenAddRecipe(); break;
                 case 'recipe-detail': content = ScreenRecipeDetail(); break;
                 case 'import-choice': content = ScreenImportChoice(); break;
+                case 'import-text': content = ScreenImportText(); break; 
                 case 'ocr-scan': content = ScreenOCRScan(); break;
-                case 'import-link': content = ScreenImportLink(); break;
                 default: content = ScreenHome();
             }
             const hasNav = ['home', 'cookbook', 'shopping-list', 'profile'].includes(state.screen);
@@ -463,17 +429,19 @@
                     <div class="absolute bottom-32 text-white text-sm bg-black/50 px-3 py-1 rounded">
                         ${state.scanMode === 'book' ? 'Buch scannen...' : 'Kühlschrank scannen...'}
                     </div>
-                    <div id="camera-fallback-btn" style="display:none" class="absolute inset-0 flex items-center justify-center bg-black z-30 flex-col"><p class="text-white mb-4">Kein Kamera-Zugriff</p><button onclick="captureAndScan()" class="bg-white text-black px-6 py-3 rounded-xl font-bold">Demo-Scan benutzen</button></div>
+                    <div id="camera-fallback-btn" style="display:none" class="absolute inset-0 flex items-center justify-center bg-black z-30 flex-col">
+                        <p class="text-white mb-4">Kamera nicht verfügbar</p>
+                        <button onclick="triggerFileUpload()" class="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold mb-2">📂 Foto hochladen</button>
+                        <button onclick="captureAndScan()" class="bg-white text-black px-6 py-3 rounded-xl font-bold">Demo-Scan</button>
+                    </div>
                 </div>
-                <div class="h-32 bg-black flex items-center justify-center shrink-0 safe-pb"><button onclick="captureAndScan()" class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center active:scale-90 transition-transform"><div class="w-16 h-16 bg-white rounded-full"></div></button></div>
+                <div class="h-32 bg-black flex items-center justify-center shrink-0 safe-pb gap-4">
+                    <button onclick="triggerFileUpload()" class="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center text-white"><i class="fas fa-image"></i></button>
+                    <button onclick="captureAndScan()" class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center active:scale-90 transition-transform"><div class="w-16 h-16 bg-white rounded-full"></div></button>
+                </div>
             </div>`;
 
-        const ScreenScanning = () => `
-            <div class="h-full bg-gray-900 flex items-center justify-center flex-col text-white w-full">
-                <div class="loader mb-6"></div>
-                <p class="mb-6">${state.aiStatus || "Analysiere..."}</p>
-                <button onclick="transitionTo('home')" class="text-gray-400 text-sm border border-gray-700 px-4 py-2 rounded-lg">Abbrechen</button>
-            </div>`;
+        const ScreenScanning = () => `<div class="h-full bg-gray-900 flex items-center justify-center flex-col text-white w-full"><div class="loader mb-6"></div><p class="mb-6">${state.aiStatus || "Analysiere..."}</p><button onclick="transitionTo('home')" class="text-gray-400 text-sm border border-gray-700 px-4 py-2 rounded-lg">Abbrechen</button></div>`;
 
         const ScreenVerify = () => `<div class="flex flex-col h-full bg-white w-full slide-up"><div class="p-6 pt-14 border-b bg-white z-10"><h2 class="text-xl font-bold">Zutaten bestätigen</h2></div><div class="flex-1 overflow-y-auto p-4 scroll-area"><div class="flex gap-2 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100"><input type="text" id="manual-ing-input" class="flex-1 bg-white border border-gray-200 rounded-lg px-3 text-sm outline-none focus:border-blue-500" placeholder="Zutat vergessen?"><button onclick="addManualScanIngredient()" class="bg-blue-600 text-white w-10 rounded-lg flex items-center justify-center"><i class="fas fa-plus"></i></button></div>${state.scannedIngredients.length === 0 ? '<p class="text-center text-gray-400 text-sm my-4">Nichts erkannt? Füge es manuell hinzu.</p>' : ''}${state.scannedIngredients.map(i => `<div onclick="toggleIngredient('${i.id}')" class="flex items-center p-3 mb-2 rounded-xl border-2 cursor-pointer ${state.selectedIngredients.find(x=>x.id===i.id)?'border-blue-500 bg-blue-50':'border-gray-100'}"><i class="fas ${i.icon || 'fa-carrot'} text-gray-500 w-8 text-center"></i><span class="font-bold text-gray-700 ml-2">${i.name}</span>${state.selectedIngredients.find(x=>x.id===i.id)?'<i class="fas fa-check ml-auto text-blue-500"></i>':''}</div>`).join('')}</div><div class="p-4 border-t shrink-0 safe-pb"><button onclick="findRecipe()" class="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg">Rezept erstellen</button></div></div>`;
 
@@ -576,15 +544,14 @@
                 <div class="p-6 pt-14 border-b flex items-center"><button onclick="transitionTo('profile')" class="mr-4 w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center"><i class="fas fa-arrow-left"></i></button><h2 class="font-bold text-lg">Einstellungen</h2></div>
                 <div class="flex-1 overflow-y-auto p-6 scroll-area">
                     <h3 class="font-bold mb-2">Google Gemini API Key</h3>
-                    <input type="password" id="api-key-input" oninput="validateKeyInput(this)" value="${state.apiKey}" class="w-full bg-gray-100 p-4 rounded-xl text-sm border border-gray-300 outline-none" placeholder="AIza...">
-                    <div id="key-status" class="text-xs mt-1 mb-6"></div>
-                    
+                    <input type="password" id="api-key-input" value="${state.apiKey}" class="w-full bg-gray-100 p-4 rounded-xl mb-4 text-sm border border-gray-300 outline-none" placeholder="AIza...">
                     <label class="block text-xs font-bold text-gray-400 uppercase mb-2">KI Modell</label>
-                    <div class="flex gap-2 mb-8">
-                        <select id="model-select" class="flex-1 bg-gray-100 p-4 rounded-xl text-sm border border-gray-300 outline-none">
-                            ${AI_MODELS.map(m => `<option value="${m.id}" ${state.aiModel === m.id ? 'selected' : ''}>${m.name}</option>`).join('')}
-                        </select>
-                        <button onclick="loadModels()" id="load-models-btn" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 rounded-xl font-bold text-xl">🔄</button>
+                    <div class="flex gap-2 mb-8"><select id="model-select" class="flex-1 bg-gray-100 p-4 rounded-xl text-sm border border-gray-300 outline-none">${AI_MODELS.map(m => `<option value="${m.id}" ${state.aiModel === m.id ? 'selected' : ''}>${m.name}</option>`).join('')}</select><button onclick="loadModels()" id="load-models-btn" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 rounded-xl font-bold text-xl">🔄</button></div>
+                    
+                    <h3 class="font-bold mb-2 mt-6">Daten & Backup</h3>
+                    <div class="flex gap-2 mb-4">
+                        <button onclick="exportData()" class="flex-1 border border-gray-300 text-gray-700 py-3 rounded-xl font-bold text-xs"><i class="fas fa-download mr-1"></i> Backup laden</button>
+                        <button onclick="triggerBackupUpload()" class="flex-1 border border-gray-300 text-gray-700 py-3 rounded-xl font-bold text-xs"><i class="fas fa-upload mr-1"></i> Wiederherstellen</button>
                     </div>
 
                     <button onclick="saveSettings()" id="save-btn" class="w-full bg-black text-white py-4 rounded-xl font-bold">Speichern</button>
@@ -593,11 +560,9 @@
             </div>`;
 
         const ScreenAddRecipe = () => `<div class="flex flex-col h-full bg-white w-full slide-up"><div class="p-4 pt-14 border-b flex justify-between items-center"><button onclick="transitionTo('cookbook')"><i class="fas fa-times"></i></button><h3 class="font-bold">Neues Rezept</h3><div class="w-4"></div></div><div class="flex-1 overflow-y-auto p-6 scroll-area"><input type="text" id="recipe-title" class="w-full text-xl font-bold mb-4 border-b pb-2 outline-none" placeholder="Titel"><select id="recipe-category" class="w-full mb-6 bg-gray-50 p-3 rounded-xl">${CATEGORIES.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}</select><div class="flex gap-2 mb-4"><input type="number" id="ing-amount" class="w-20 bg-gray-50 p-3 rounded-xl" placeholder="1"><select id="ing-unit" class="w-24 bg-gray-50 p-3 rounded-xl">${['Stk','g','ml'].map(u => `<option>${u}</option>`).join('')}</select><input type="text" id="ing-name" class="flex-1 bg-gray-50 p-3 rounded-xl" placeholder="Zutat"><button onclick="addTempIngredient()" class="bg-green-600 text-white p-3 rounded-xl"><i class="fas fa-plus"></i></button></div><div class="mb-6 space-y-2">${state.tempIngredients.map((ing, i) => `<div class="flex justify-between bg-gray-50 p-2 rounded-lg text-sm"><span>${ing.amount} ${ing.unit} ${ing.name}</span><i onclick="removeTempIngredient(${i})" class="fas fa-times text-red-400"></i></div>`).join('')}</div><textarea id="recipe-desc" class="w-full bg-gray-50 p-3 rounded-xl h-32" placeholder="Anleitung..."></textarea><div class="mt-4 flex items-center gap-3"><input type="checkbox" id="recipe-public" class="w-5 h-5"><label>Öffentlich</label></div></div><div class="p-4 border-t shrink-0 safe-pb"><button onclick="saveUserRecipe()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold">Speichern</button></div></div>`;
-        
-        // RESTORED IMPORT SCREENS
-        const ScreenImportChoice = () => `<div class="flex flex-col h-full bg-white slide-up z-50"><div class="p-6 pt-14 flex justify-between items-center"><button onclick="transitionTo('cookbook')" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"><i class="fas fa-times"></i></button><h3 class="font-bold">Rezept importieren</h3><div class="w-8"></div></div><div class="flex-1 p-6 flex flex-col justify-center gap-4"><button onclick="startBookScan()" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-camera"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Buch scannen</h4></div></button><button onclick="transitionTo('add-recipe')" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-pen"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Manuell</h4></div></button><button onclick="transitionTo('import-link')" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-link"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Web Link</h4></div></button></div></div>`;
+        const ScreenImportChoice = () => `<div class="flex flex-col h-full bg-white slide-up z-50"><div class="p-6 pt-14 flex justify-between items-center"><button onclick="transitionTo('cookbook')" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"><i class="fas fa-times"></i></button><h3 class="font-bold">Rezept importieren</h3><div class="w-8"></div></div><div class="flex-1 p-6 flex flex-col justify-center gap-4"><button onclick="startBookScan()" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-camera"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Buch scannen</h4></div></button><button onclick="transitionTo('import-text')" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-file-alt"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Text einfügen</h4></div></button><button onclick="transitionTo('add-recipe')" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-pen"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Manuell</h4></div></button></div></div>`;
         const ScreenOCRScan = () => `<div class="h-full bg-gray-900 flex items-center justify-center flex-col text-white w-full"><div class="loader mb-6"></div><p>${state.aiStatus || "Analysiere Buchseite..."}</p></div>`;
-        const ScreenImportLink = () => `<div class="flex flex-col h-full bg-white slide-up z-50"><div class="p-6 pt-14 flex justify-between items-center border-b border-gray-100"><button onclick="transitionTo('import-choice')" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600"><i class="fas fa-arrow-left"></i></button><h3 class="font-bold">Link Import</h3><div class="w-8"></div></div><div class="p-6 flex-1"><input type="text" id="import-url" placeholder="https://..." class="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-4 font-medium w-full mb-4"><button onclick="startLinkImport()" class="w-full bg-black text-white py-4 rounded-xl font-bold shadow-lg">Laden</button></div></div>`;
+        const ScreenImportText = () => `<div class="flex flex-col h-full bg-white slide-up z-50"><div class="p-6 pt-14 flex justify-between items-center border-b border-gray-100"><button onclick="transitionTo('import-choice')" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600"><i class="fas fa-arrow-left"></i></button><h3 class="font-bold">Text Import</h3><div class="w-8"></div></div><div class="p-6 flex-1 flex flex-col"><p class="text-xs text-gray-400 mb-2">Kopiere ein Rezept und füge es hier ein.</p><textarea id="import-text" class="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm w-full mb-4 resize-none" placeholder="Zutaten: ... Zubereitung: ..."></textarea><button onclick="processTextImport()" class="w-full bg-black text-white py-4 rounded-xl font-bold shadow-lg">Analysieren</button></div></div>`;
 
         init();
     </script>
