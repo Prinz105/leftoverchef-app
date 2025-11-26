@@ -44,7 +44,7 @@
         function loadData() {
             try {
                 let saved = localStorage.getItem(APP_KEY);
-                if (!saved) saved = localStorage.getItem("leftoverchef_master_v36"); // Migration check
+                if (!saved) saved = localStorage.getItem("leftoverchef_master_v36"); 
                 if(saved) return JSON.parse(saved);
             } catch(e) { console.error(e); }
             return { 
@@ -96,6 +96,7 @@
             } catch(e) { return []; }
         }
 
+        // FIX: Updated Prompt to ensure description is captured
         async function callGeminiTextAnalysis(textInput) {
              if (!state.apiKey) return null;
              const key = state.apiKey.trim();
@@ -104,7 +105,7 @@
                     method: "POST", 
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ 
-                        contents: [{ parts: [{ text: `Analysiere diesen Text und extrahiere das Rezept. Antworte NUR mit validem JSON: {"title": "Titel", "desc": "Zubereitung", "category": "dinner", "ingredients": [{"amount": "Menge", "unit": "Einheit", "name": "Zutat"}]}. Text: ${textInput}` }] }],
+                        contents: [{ parts: [{ text: `Analysiere diesen Text. Extrahiere den Titel, die Zutaten und die VOLLSTÄNDIGE Zubereitung. Antworte NUR mit validem JSON: {"title": "Titel", "desc": "Hier die komplette Zubereitung einfügen", "category": "dinner", "ingredients": [{"amount": "Menge", "unit": "Einheit", "name": "Zutat"}]}. Text: ${textInput}` }] }],
                         generationConfig: { response_mime_type: "application/json" } 
                     })
                 });
@@ -181,7 +182,9 @@
             const titleEl = document.getElementById('recipe-title');
             const descEl = document.getElementById('recipe-desc');
             const catEl = document.getElementById('recipe-category');
+            
             if(titleEl && data.title) titleEl.value = data.title;
+            // Ensure desc is populated
             if(descEl && data.desc) descEl.value = data.desc;
             if(catEl && data.category) catEl.value = data.category;
         }
@@ -193,7 +196,8 @@
             if(screenName === 'add-recipe') {
                 if(state.prefilledData) {
                     state.tempIngredients = [...state.prefilledData.ingredients];
-                    setTimeout(() => fillForm(state.prefilledData), 100);
+                    // FIX: Increased timeout to ensure DOM is ready for filling
+                    setTimeout(() => fillForm(state.prefilledData), 200);
                     state.prefilledData = null;
                 } else {
                     state.tempIngredients = [];
@@ -305,7 +309,8 @@
 
         async function performBookOCR(base64) {
             state.aiStatus = "Lese Buchseite..."; render();
-            const prompt = "Extrahiere das Rezept aus diesem Bild. Antworte NUR als JSON: {\"title\": \"Titel\", \"desc\": \"Zubereitung als Text\", \"category\": \"dinner\", \"ingredients\": [{\"amount\": \"Zahl\", \"unit\": \"g/ml/Stk\", \"name\": \"Zutat\"}]}.";
+            // Update Prompt for better description extraction
+            const prompt = "Extrahiere das Rezept aus diesem Bild. WICHTIG: Gib die VOLLSTÄNDIGE Zubereitung im Feld 'desc' zurück. Antworte NUR als JSON: {\"title\": \"Titel\", \"desc\": \"Zubereitung als Text\", \"category\": \"dinner\", \"ingredients\": [{\"amount\": \"Zahl\", \"unit\": \"g/ml/Stk\", \"name\": \"Zutat\"}]}.";
             const result = await callGeminiVision(base64, prompt);
             if(result) { state.prefilledData = result; transitionTo('add-recipe'); } 
             else { alert("Fehler beim Lesen."); transitionTo('cookbook'); }
