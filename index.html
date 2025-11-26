@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- PDF Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
@@ -193,13 +195,9 @@
             
             if(screenName === 'add-recipe') {
                 if(state.prefilledData) {
-                    // FIX: Capture data in local variable to prevent it being nullified before timeout runs
                     const dataToFill = state.prefilledData;
                     state.tempIngredients = [...dataToFill.ingredients];
-                    
-                    // Execute filling after DOM update
                     setTimeout(() => fillForm(dataToFill), 200);
-                    
                     state.prefilledData = null;
                 } else {
                     state.tempIngredients = [];
@@ -209,6 +207,54 @@
         }
         
         function switchTab(tab) { stopCamera(); state.activeTab = tab; state.screen = tab; render(); }
+
+        // PDF DOWNLOAD FUNCTION
+        function createPDF(recipeId) {
+            const recipe = state.userRecipes.find(r => r.id === recipeId);
+            if (!recipe) return;
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(22);
+            doc.text(recipe.title, 20, 20);
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(12);
+            doc.text(`Zubereitungszeit: ${recipe.time}`, 20, 30);
+            
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            doc.text("Zutaten:", 20, 45);
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(12);
+            let y = 55;
+            recipe.ingredients.forEach(ing => {
+                doc.text(`• ${ing.amount} ${ing.unit} ${ing.name}`, 20, y);
+                y += 7;
+            });
+
+            y += 10;
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            doc.text("Zubereitung:", 20, y);
+            
+            y += 10;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(12);
+            
+            const splitText = doc.splitTextToSize(recipe.desc, 170);
+            doc.text(splitText, 20, y);
+
+            // Footer
+            doc.setFontSize(10);
+            doc.setTextColor(150);
+            doc.text("Erstellt mit LeftoverChef", 20, 280);
+
+            doc.save(`${recipe.title.replace(/\s+/g, '_')}.pdf`);
+        }
 
         // BACKUP ACTIONS
         function exportData() {
@@ -311,7 +357,6 @@
 
         async function performBookOCR(base64) {
             state.aiStatus = "Lese Buchseite..."; render();
-            // Update Prompt for better description extraction
             const prompt = "Extrahiere das Rezept aus diesem Bild. WICHTIG: Gib die VOLLSTÄNDIGE Zubereitung im Feld 'desc' zurück. Antworte NUR als JSON: {\"title\": \"Titel\", \"desc\": \"Zubereitung als Text\", \"category\": \"dinner\", \"ingredients\": [{\"amount\": \"Zahl\", \"unit\": \"g/ml/Stk\", \"name\": \"Zutat\"}]}.";
             const result = await callGeminiVision(base64, prompt);
             if(result) { state.prefilledData = result; transitionTo('add-recipe'); } 
@@ -536,6 +581,7 @@
                     <div class="space-y-2 mb-6">${r.ingredients.map(i => `<div class="flex justify-between border-b pb-2 text-sm"><span>${i.name}</span><b>${i.amount} ${i.unit}</b></div>`).join('')}</div>
                     <h3 class="font-bold mb-2">Zubereitung</h3>
                     <p class="text-sm text-gray-600">${r.desc}</p>
+                    <button onclick="createPDF(${r.id})" class="w-full mt-6 bg-red-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><i class="fas fa-file-pdf"></i> Als PDF speichern</button>
                 </div>
                 <div class="p-4 border-t shrink-0 safe-pb"><button onclick="cookRecipe()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-lg">Gekocht!</button></div>
             </div>`; 
