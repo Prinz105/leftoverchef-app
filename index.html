@@ -33,13 +33,13 @@
 
     <script>
         // --- CONFIG ---
-        const APP_KEY = "leftoverchef_master_v31";
+        const APP_KEY = "leftoverchef_master_v32";
         const DEFAULT_MODEL = "gemini-1.5-flash";
 
         function loadData() {
             try {
                 let saved = localStorage.getItem(APP_KEY);
-                if (!saved) saved = localStorage.getItem("leftoverchef_master_v30"); 
+                if (!saved) saved = localStorage.getItem("leftoverchef_master_v31"); 
                 if(saved) return JSON.parse(saved);
             } catch(e) { console.error(e); }
             return { 
@@ -162,7 +162,37 @@
 
         // --- ACTIONS ---
         function init() { render(); }
-        function transitionTo(screenName) { stopCamera(); state.screen = screenName; render(); }
+        
+        // UPDATED: fillForm function restored for import feature
+        function fillForm(data) {
+            if(!data) return;
+            const titleEl = document.getElementById('recipe-title');
+            const descEl = document.getElementById('recipe-desc');
+            const catEl = document.getElementById('recipe-category');
+            
+            if(titleEl && data.title) titleEl.value = data.title;
+            if(descEl && data.desc) descEl.value = data.desc;
+            if(catEl && data.category) catEl.value = data.category;
+        }
+
+        function transitionTo(screenName) { 
+            stopCamera(); 
+            state.screen = screenName; 
+            
+            // Auto-fill logic for imports
+            if(screenName === 'add-recipe') {
+                if(state.prefilledData) {
+                    state.tempIngredients = [...state.prefilledData.ingredients];
+                    // Wait for DOM to be ready
+                    setTimeout(() => fillForm(state.prefilledData), 100);
+                    state.prefilledData = null;
+                } else {
+                    state.tempIngredients = [];
+                }
+            }
+            render(); 
+        }
+        
         function switchTab(tab) { stopCamera(); state.activeTab = tab; state.screen = tab; render(); }
 
         async function startRealCamera(elemId) {
@@ -223,11 +253,8 @@
             
             window.currentResultRecipe = recipe || mockRecipe;
             
-            // IMAGE GENERATION MAGIC
             if (recipe && recipe.image_prompt) {
-                // Encode prompt for URL
                 const safePrompt = encodeURIComponent(recipe.image_prompt);
-                // Use Pollinations AI for instant generation
                 window.currentResultRecipe.image = `https://image.pollinations.ai/prompt/${safePrompt}?nologo=true`;
             } else if(!window.currentResultRecipe.image) {
                 window.currentResultRecipe.image = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80";
@@ -354,7 +381,6 @@
             return `
             <div class="flex flex-col h-full bg-white w-full slide-up">
                 <div class="h-64 relative bg-gray-200 shrink-0">
-                    <!-- DISPLAY GENERATED IMAGE -->
                     <img src="${r.image}" class="w-full h-full object-cover">
                     <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
                     <div class="absolute bottom-0 left-0 p-6 text-white">
@@ -378,19 +404,34 @@
             </div>`; 
         };
 
+        // UPDATED: COOKBOOK WITH IMPORT BUTTON RESTORED
         const ScreenCookbook = () => `
-            <div class="flex flex-col h-full bg-white w-full relative"><div class="p-6 pt-14 border-b bg-white z-10 sticky top-0"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold">Kochbuch</h2><button onclick="transitionTo('add-recipe')" class="bg-black text-white w-8 h-8 rounded-full flex items-center justify-center"><i class="fas fa-plus"></i></button></div><input type="text" placeholder="Suche..." class="w-full bg-gray-100 rounded-xl p-3 text-sm outline-none" oninput="state.cookbookSearch=this.value; render()"></div><div class="flex-1 overflow-y-auto p-6 pb-20 scroll-area">${state.userRecipes.length===0?'<p class="text-gray-400 text-center mt-10">Noch keine Rezepte.</p>':''}${state.userRecipes.filter(r=>r.title.toLowerCase().includes(state.cookbookSearch.toLowerCase())).map(r=>`
-                <div class="relative group">
-                    <div onclick="state.selectedRecipeId=${r.id}; transitionTo('recipe-detail')" class="bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 shadow-sm mb-4 cursor-pointer active:bg-gray-50">
-                        <div class="w-20 h-20 bg-gray-100 rounded-xl overflow-hidden shrink-0"><img src="${r.image}" class="w-full h-full object-cover"></div>
-                        <div class="flex-1 flex flex-col justify-center pr-8">
-                            <h3 class="font-bold text-gray-800 mb-1">${r.title}</h3>
-                            <div class="text-xs text-gray-500">${r.ingredients.length} Zutaten</div>
-                            <div class="flex mt-2 text-amber-400 text-xs">${[1,2,3,4,5].map(s => `<i class="${r.myRating >= s ? 'fas' : 'far'} fa-star"></i>`).join('')}</div>
-                        </div>
+            <div class="flex flex-col h-full bg-white w-full relative">
+                <div class="p-6 pt-14 border-b bg-white z-10 sticky top-0">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-bold">Kochbuch</h2>
+                        <button onclick="transitionTo('import-choice')" class="bg-black text-white w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-800 active:scale-95 transition-transform">
+                            <i class="fas fa-plus"></i>
+                        </button>
                     </div>
-                    <button onclick="deleteRecipe(${r.id})" class="absolute top-2 right-2 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center text-gray-400 hover:text-red-500 z-10"><i class="fas fa-trash text-xs"></i></button>
-                </div>`).join('')}</div></div>`;
+                    <input type="text" placeholder="Suche..." class="w-full bg-gray-100 rounded-xl p-3 text-sm outline-none" oninput="state.cookbookSearch=this.value; render()">
+                </div>
+                <div class="flex-1 overflow-y-auto p-6 pb-20 scroll-area">
+                    ${state.userRecipes.length===0?'<p class="text-gray-400 text-center mt-10">Noch keine Rezepte.</p>':''}
+                    ${state.userRecipes.filter(r=>r.title.toLowerCase().includes(state.cookbookSearch.toLowerCase())).map(r=>`
+                        <div class="relative group">
+                            <div onclick="state.selectedRecipeId=${r.id}; transitionTo('recipe-detail')" class="bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 shadow-sm mb-4 cursor-pointer active:bg-gray-50">
+                                <div class="w-20 h-20 bg-gray-100 rounded-xl overflow-hidden shrink-0"><img src="${r.image}" class="w-full h-full object-cover"></div>
+                                <div class="flex-1 flex flex-col justify-center pr-8">
+                                    <h3 class="font-bold text-gray-800 mb-1">${r.title}</h3>
+                                    <div class="text-xs text-gray-500">${r.ingredients.length} Zutaten</div>
+                                    <div class="flex mt-2 text-amber-400 text-xs">${[1,2,3,4,5].map(s => `<i class="${r.myRating >= s ? 'fas' : 'far'} fa-star"></i>`).join('')}</div>
+                                </div>
+                            </div>
+                            <button onclick="deleteRecipe(${r.id})" class="absolute top-2 right-2 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center text-gray-400 hover:text-red-500 z-10"><i class="fas fa-trash text-xs"></i></button>
+                        </div>`).join('')}
+                </div>
+            </div>`;
 
         const ScreenShoppingList = () => `<div class="flex flex-col h-full bg-white w-full"><div class="p-6 pt-14 border-b flex justify-between items-center shrink-0"><h2 class="text-2xl font-bold">Einkaufsliste</h2><span class="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold">${state.cart.length}</span></div><div class="flex-1 overflow-y-auto p-6 scroll-area">${state.cart.length === 0 ? `<div class="flex flex-col items-center justify-center h-full opacity-40"><i class="fas fa-shopping-cart text-6xl mb-4"></i><p>Alles erledigt!</p></div>` : state.cart.map((item, i) => `<div class="flex items-center justify-between bg-gray-50 p-4 mb-3 rounded-xl border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-6 h-6 rounded-full border-2 border-gray-300"></div><span class="font-bold text-gray-700">${item}</span></div><button onclick="removeFromCart(${i})" class="text-gray-400 hover:text-red-500"><i class="fas fa-trash"></i></button></div>`).join('')}</div></div>`;
 
@@ -452,8 +493,18 @@
             </div>`;
 
         const ScreenAddRecipe = () => `<div class="flex flex-col h-full bg-white w-full slide-up"><div class="p-4 pt-14 border-b flex justify-between items-center"><button onclick="transitionTo('cookbook')"><i class="fas fa-times"></i></button><h3 class="font-bold">Neues Rezept</h3><div class="w-4"></div></div><div class="flex-1 overflow-y-auto p-6 scroll-area"><input type="text" id="recipe-title" class="w-full text-xl font-bold mb-4 border-b pb-2 outline-none" placeholder="Titel"><select id="recipe-category" class="w-full mb-6 bg-gray-50 p-3 rounded-xl">${CATEGORIES.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}</select><div class="flex gap-2 mb-4"><input type="number" id="ing-amount" class="w-20 bg-gray-50 p-3 rounded-xl" placeholder="1"><select id="ing-unit" class="w-24 bg-gray-50 p-3 rounded-xl">${['Stk','g','ml'].map(u => `<option>${u}</option>`).join('')}</select><input type="text" id="ing-name" class="flex-1 bg-gray-50 p-3 rounded-xl" placeholder="Zutat"><button onclick="addTempIngredient()" class="bg-green-600 text-white p-3 rounded-xl"><i class="fas fa-plus"></i></button></div><div class="mb-6 space-y-2">${state.tempIngredients.map((ing, i) => `<div class="flex justify-between bg-gray-50 p-2 rounded-lg text-sm"><span>${ing.amount} ${ing.unit} ${ing.name}</span><i onclick="removeTempIngredient(${i})" class="fas fa-times text-red-400"></i></div>`).join('')}</div><textarea id="recipe-desc" class="w-full bg-gray-50 p-3 rounded-xl h-32" placeholder="Anleitung..."></textarea><div class="mt-4 flex items-center gap-3"><input type="checkbox" id="recipe-public" class="w-5 h-5"><label>Öffentlich</label></div></div><div class="p-4 border-t shrink-0 safe-pb"><button onclick="saveUserRecipe()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold">Speichern</button></div></div>`;
+        
+        // RESTORED SCREENS FOR IMPORT
         const ScreenImportChoice = () => `<div class="flex flex-col h-full bg-white slide-up z-50"><div class="p-6 pt-14 flex justify-between items-center"><button onclick="transitionTo('cookbook')" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"><i class="fas fa-times"></i></button><h3 class="font-bold">Rezept importieren</h3><div class="w-8"></div></div><div class="flex-1 p-6 flex flex-col justify-center gap-4"><button onclick="transitionTo('add-recipe')" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-pen"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Manuell</h4></div></button><button onclick="transitionTo('ocr-scan')" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-camera"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Buch scannen</h4></div></button><button onclick="transitionTo('import-link')" class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center gap-4"><div class="w-12 h-12 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xl"><i class="fas fa-link"></i></div><div class="text-left"><h4 class="font-bold text-gray-800">Web Link</h4></div></button></div></div>`;
-        const ScreenOCRScan = () => { setTimeout(() => { state.prefilledData = { title: "Apfelkuchen (Scan)", desc: "Gefunden in: Omas Backbuch", category: "snack", ingredients: [{amount:"3",unit:"Stk",name:"Äpfel"}, {amount:"200",unit:"g",name:"Mehl"}] }; transitionTo('add-recipe'); }, 2500); return `<div class="h-full bg-black flex items-center justify-center text-white flex-col"><div class="loader mb-6"></div><p>Text wird erkannt...</p></div>`; };
+        
+        const ScreenOCRScan = () => { 
+            setTimeout(() => { 
+                state.prefilledData = { title: "Apfelkuchen (Scan)", desc: "Gefunden in: Omas Backbuch", category: "snack", ingredients: [{amount:"3",unit:"Stk",name:"Äpfel"}, {amount:"200",unit:"g",name:"Mehl"}] }; 
+                transitionTo('add-recipe'); 
+            }, 2500); 
+            return `<div class="h-full bg-black flex items-center justify-center text-white flex-col"><div class="loader mb-6"></div><p>Text wird erkannt...</p></div>`; 
+        };
+        
         const ScreenImportLink = () => `<div class="flex flex-col h-full bg-white slide-up z-50"><div class="p-6 pt-14 flex justify-between items-center border-b border-gray-100"><button onclick="transitionTo('import-choice')" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600"><i class="fas fa-arrow-left"></i></button><h3 class="font-bold">Link Import</h3><div class="w-8"></div></div><div class="p-6 flex-1"><input type="text" id="import-url" placeholder="https://..." class="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-4 font-medium w-full mb-4"><button onclick="setTimeout(()=>{ state.prefilledData={title:'Web Rezept', desc:'Importiert von Chefkoch', category:'dinner', ingredients:[{amount:'500',unit:'g',name:'Nudeln'}]}; transitionTo('add-recipe'); }, 1500)" class="w-full bg-black text-white py-4 rounded-xl font-bold shadow-lg">Laden</button></div></div>`;
 
         init();
