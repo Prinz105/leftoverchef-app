@@ -96,7 +96,6 @@
             } catch(e) { return []; }
         }
 
-        // FIX: Updated Prompt to ensure description is captured
         async function callGeminiTextAnalysis(textInput) {
              if (!state.apiKey) return null;
              const key = state.apiKey.trim();
@@ -184,7 +183,6 @@
             const catEl = document.getElementById('recipe-category');
             
             if(titleEl && data.title) titleEl.value = data.title;
-            // Ensure desc is populated
             if(descEl && data.desc) descEl.value = data.desc;
             if(catEl && data.category) catEl.value = data.category;
         }
@@ -195,9 +193,13 @@
             
             if(screenName === 'add-recipe') {
                 if(state.prefilledData) {
-                    state.tempIngredients = [...state.prefilledData.ingredients];
-                    // FIX: Increased timeout to ensure DOM is ready for filling
-                    setTimeout(() => fillForm(state.prefilledData), 200);
+                    // FIX: Capture data in local variable to prevent it being nullified before timeout runs
+                    const dataToFill = state.prefilledData;
+                    state.tempIngredients = [...dataToFill.ingredients];
+                    
+                    // Execute filling after DOM update
+                    setTimeout(() => fillForm(dataToFill), 200);
+                    
                     state.prefilledData = null;
                 } else {
                     state.tempIngredients = [];
@@ -446,7 +448,12 @@
                 </div>
             </div>`;
 
-        const ScreenScanning = () => `<div class="h-full bg-gray-900 flex items-center justify-center flex-col text-white w-full"><div class="loader mb-6"></div><p class="mb-6">${state.aiStatus || "Analysiere..."}</p><button onclick="transitionTo('home')" class="text-gray-400 text-sm border border-gray-700 px-4 py-2 rounded-lg">Abbrechen</button></div>`;
+        const ScreenScanning = () => `
+            <div class="h-full bg-gray-900 flex items-center justify-center flex-col text-white w-full">
+                <div class="loader mb-6"></div>
+                <p class="mb-6">${state.aiStatus || "Analysiere..."}</p>
+                <button onclick="transitionTo('home')" class="text-gray-400 text-sm border border-gray-700 px-4 py-2 rounded-lg">Abbrechen</button>
+            </div>`;
 
         const ScreenVerify = () => `<div class="flex flex-col h-full bg-white w-full slide-up"><div class="p-6 pt-14 border-b bg-white z-10"><h2 class="text-xl font-bold">Zutaten bestätigen</h2></div><div class="flex-1 overflow-y-auto p-4 scroll-area"><div class="flex gap-2 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100"><input type="text" id="manual-ing-input" class="flex-1 bg-white border border-gray-200 rounded-lg px-3 text-sm outline-none focus:border-blue-500" placeholder="Zutat vergessen?"><button onclick="addManualScanIngredient()" class="bg-blue-600 text-white w-10 rounded-lg flex items-center justify-center"><i class="fas fa-plus"></i></button></div>${state.scannedIngredients.length === 0 ? '<p class="text-center text-gray-400 text-sm my-4">Nichts erkannt? Füge es manuell hinzu.</p>' : ''}${state.scannedIngredients.map(i => `<div onclick="toggleIngredient('${i.id}')" class="flex items-center p-3 mb-2 rounded-xl border-2 cursor-pointer ${state.selectedIngredients.find(x=>x.id===i.id)?'border-blue-500 bg-blue-50':'border-gray-100'}"><i class="fas ${i.icon || 'fa-carrot'} text-gray-500 w-8 text-center"></i><span class="font-bold text-gray-700 ml-2">${i.name}</span>${state.selectedIngredients.find(x=>x.id===i.id)?'<i class="fas fa-check ml-auto text-blue-500"></i>':''}</div>`).join('')}</div><div class="p-4 border-t shrink-0 safe-pb"><button onclick="findRecipe()" class="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg">Rezept erstellen</button></div></div>`;
 
