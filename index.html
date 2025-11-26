@@ -24,6 +24,8 @@
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .loader { border: 3px solid #f3f3f3; border-radius: 50%; border-top: 3px solid #4F46E5; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .rating-star { cursor: pointer; transition: transform 0.1s; }
+        .rating-star:active { transform: scale(1.3); }
     </style>
 </head>
 <body>
@@ -31,13 +33,13 @@
 
     <script>
         // --- CONFIG ---
-        const APP_KEY = "leftoverchef_master_v27";
+        const APP_KEY = "leftoverchef_master_v29";
         const DEFAULT_MODEL = "gemini-1.5-flash";
 
         function loadData() {
             try {
                 let saved = localStorage.getItem(APP_KEY);
-                if (!saved) saved = localStorage.getItem("leftoverchef_master_v26"); 
+                if (!saved) saved = localStorage.getItem("leftoverchef_master_v28"); 
                 if(saved) return JSON.parse(saved);
             } catch(e) { console.error(e); }
             return { 
@@ -61,7 +63,7 @@
 
         // --- MOCK DATA ---
         const mockIngredients = [{ id: 'tmt', name: "Tomaten (Demo)", icon: "fa-apple-alt" }, { id: 'egg', name: "Eier (Demo)", icon: "fa-egg" }];
-        const mockRecipe = { title: "Omelett (Demo)", desc: "Platzhalter-Rezept (Demo Mode).", ingredients: [{amount: "3", unit: "Stk", name: "Eier"}], missing: "Schnittlauch", image: "https://images.unsplash.com/photo-1510693206972-df098062cb71?auto=format&fit=crop&w=800&q=80" };
+        const mockRecipe = { title: "Omelett (Demo)", desc: "Platzhalter-Rezept (Demo Mode).", ingredients: [{amount: "3", unit: "Stk", name: "Eier"}], missing: "Schnittlauch", image: "https://images.unsplash.com/photo-1510693206972-df098062cb71?auto=format&fit=crop&w=800&q=80", myRating: 0 };
 
         // --- STATE ---
         const persistedData = loadData();
@@ -147,6 +149,7 @@
             let msg = e.message;
             if (msg.includes("API key not valid")) msg = "Der API Key ist falsch.";
             if (msg.includes("JSON")) msg = "KI Antwort war kein gültiges JSON (Format-Fehler).";
+            if (msg.includes("not found")) msg = `Modell '${state.aiModel}' nicht gefunden. Bitte wähle ein anderes in den Einstellungen.`;
             alert(`⚠️ KI Fehler:\n${msg}`);
             transitionTo('settings');
         }
@@ -204,7 +207,36 @@
             if (state.apiKey) recipe = await callGeminiRecipe(state.selectedIngredients);
             window.currentResultRecipe = recipe || mockRecipe;
             if(!window.currentResultRecipe.image) window.currentResultRecipe.image = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80";
+            window.currentResultRecipe.myRating = 0; 
             transitionTo('results');
+        }
+
+        // NEW: Function to save the AI generated recipe
+        function saveAiRecipe() {
+            if (!window.currentResultRecipe) return;
+            
+            const newRecipe = {
+                id: Date.now(),
+                title: window.currentResultRecipe.title,
+                desc: window.currentResultRecipe.desc,
+                time: window.currentResultRecipe.time || "20 Min",
+                category: "dinner", // Default category for AI recipes
+                isPublic: false,
+                isUserCreated: true,
+                ingredients: state.selectedIngredients.map(i => ({name: i.name, amount: "1", unit: "x"})), // Map basic ingredients
+                image: window.currentResultRecipe.image,
+                myRating: 0
+            };
+            
+            state.userRecipes.unshift(newRecipe);
+            saveData();
+            
+            // Reset filters to show new recipe
+            state.cookbookFilter = 'all';
+            state.cookbookSort = 'newest';
+            state.cookbookSearch = '';
+            
+            transitionTo('cookbook');
         }
 
         function validateKeyInput(input) {
@@ -245,6 +277,15 @@
                 alert(`✅ Gefunden! Habe '${bestMatch}' ausgewählt.`);
             } else {
                 alert("Konnte keine Modelle laden. Key prüfen.");
+            }
+        }
+
+        function rateRecipe(id, stars) {
+            const recipe = state.userRecipes.find(r => r.id === id);
+            if(recipe) {
+                recipe.myRating = stars;
+                saveData();
+                render(); 
             }
         }
 
@@ -297,13 +338,11 @@
 
         const ScreenCamera = () => `
             <div class="h-full bg-black relative flex flex-col w-full">
-                <!-- FIX: BACK BUTTON IS HERE, Z-INDEX 50 -->
                 <div class="absolute top-0 w-full p-6 pt-14 flex justify-between z-50 text-white">
-                    <button onclick="transitionTo('home')" class="w-10 h-10 bg-black/40 rounded-full backdrop-blur flex items-center justify-center hover:bg-white/20 transition-colors">
-                        <i class="fas fa-times text-lg"></i>
+                    <button onclick="transitionTo('home')" class="w-12 h-12 bg-black/50 rounded-full backdrop-blur flex items-center justify-center border border-white/20">
+                        <i class="fas fa-times text-xl"></i>
                     </button>
                 </div>
-                
                 <div class="flex-1 relative flex items-center justify-center overflow-hidden">
                     <video id="camera-feed" autoplay playsinline class="w-full h-full object-cover"></video>
                     <div class="absolute inset-0 border-[2px] border-white/30 m-8 rounded-3xl pointer-events-none"></div>
@@ -321,13 +360,66 @@
 
         const ScreenVerify = () => `<div class="flex flex-col h-full bg-white w-full slide-up"><div class="p-6 pt-14 border-b bg-white z-10"><h2 class="text-xl font-bold">Zutaten bestätigen</h2></div><div class="flex-1 overflow-y-auto p-4 scroll-area"><div class="flex gap-2 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100"><input type="text" id="manual-ing-input" class="flex-1 bg-white border border-gray-200 rounded-lg px-3 text-sm outline-none focus:border-blue-500" placeholder="Zutat vergessen?"><button onclick="addManualScanIngredient()" class="bg-blue-600 text-white w-10 rounded-lg flex items-center justify-center"><i class="fas fa-plus"></i></button></div>${state.scannedIngredients.length === 0 ? '<p class="text-center text-gray-400 text-sm my-4">Nichts erkannt? Füge es manuell hinzu.</p>' : ''}${state.scannedIngredients.map(i => `<div onclick="toggleIngredient('${i.id}')" class="flex items-center p-3 mb-2 rounded-xl border-2 cursor-pointer ${state.selectedIngredients.find(x=>x.id===i.id)?'border-blue-500 bg-blue-50':'border-gray-100'}"><i class="fas ${i.icon || 'fa-carrot'} text-gray-500 w-8 text-center"></i><span class="font-bold text-gray-700 ml-2">${i.name}</span>${state.selectedIngredients.find(x=>x.id===i.id)?'<i class="fas fa-check ml-auto text-blue-500"></i>':''}</div>`).join('')}</div><div class="p-4 border-t shrink-0 safe-pb"><button onclick="findRecipe()" class="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg">Rezept erstellen</button></div></div>`;
 
-        const ScreenResults = () => { const r = window.currentResultRecipe; return `<div class="flex flex-col h-full bg-white w-full slide-up"><div class="h-64 relative bg-gray-200 shrink-0"><img src="${r.image}" class="w-full h-full object-cover"><div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div><div class="absolute bottom-0 left-0 p-6 text-white"><div class="bg-blue-600 text-[10px] font-bold px-2 py-1 rounded inline-block mb-2">GEMINI REZEPT</div><h2 class="text-2xl font-bold leading-tight">${r.title}</h2></div></div><div class="flex-1 overflow-y-auto p-6 scroll-area"><p class="text-gray-600 text-sm mb-6 leading-relaxed">${r.desc}</p><div class="bg-orange-50 p-4 rounded-xl border border-orange-100 flex items-center text-sm mb-6"><i class="fas fa-shopping-basket text-orange-500 mr-3"></i><span>Fehlt oft: <b>${r.missing || "Gewürze"}</b></span></div><button onclick="addToCart('${r.missing || 'Gewürze'}')" class="w-full bg-black text-white py-3 rounded-xl font-bold mb-2">+ Fehlende Zutat auf Liste</button><button onclick="transitionTo('home')" class="w-full bg-gray-100 text-gray-800 py-3 rounded-xl font-bold">Fertig</button></div></div>`; };
+        // NEW: RESULTS SCREEN WITH SAVE BUTTON
+        const ScreenResults = () => { 
+            const r = window.currentResultRecipe; 
+            return `
+            <div class="flex flex-col h-full bg-white w-full slide-up">
+                <div class="h-64 relative bg-gray-200 shrink-0">
+                    <img src="${r.image}" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+                    <div class="absolute bottom-0 left-0 p-6 text-white">
+                        <div class="bg-blue-600 text-[10px] font-bold px-2 py-1 rounded inline-block mb-2">GEMINI REZEPT</div>
+                        <h2 class="text-2xl font-bold leading-tight">${r.title}</h2>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto p-6 scroll-area">
+                    <p class="text-gray-600 text-sm mb-6 leading-relaxed">${r.desc}</p>
+                    <div class="bg-orange-50 p-4 rounded-xl border border-orange-100 flex items-center text-sm mb-6">
+                        <i class="fas fa-shopping-basket text-orange-500 mr-3"></i>
+                        <span>Fehlt oft: <b>${r.missing || "Gewürze"}</b></span>
+                    </div>
+                    <button onclick="addToCart('${r.missing || 'Gewürze'}')" class="w-full bg-black text-white py-3 rounded-xl font-bold mb-4">+ Fehlende Zutat auf Liste</button>
+                    
+                    <!-- SAVE OPTIONS -->
+                    <div class="flex gap-2 mt-auto pb-4">
+                        <button onclick="saveAiRecipe()" class="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold">Speichern</button>
+                        <button onclick="transitionTo('home')" class="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-bold">Verwerfen</button>
+                    </div>
+                </div>
+            </div>`; 
+        };
 
-        const ScreenCookbook = () => `<div class="flex flex-col h-full bg-white w-full relative"><div class="p-6 pt-14 border-b bg-white z-10 sticky top-0"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold">Kochbuch</h2><button onclick="transitionTo('add-recipe')" class="bg-black text-white w-8 h-8 rounded-full flex items-center justify-center"><i class="fas fa-plus"></i></button></div><input type="text" placeholder="Suche..." class="w-full bg-gray-100 rounded-xl p-3 text-sm outline-none" oninput="state.cookbookSearch=this.value; render()"></div><div class="flex-1 overflow-y-auto p-6 pb-20 scroll-area">${state.userRecipes.length===0?'<p class="text-gray-400 text-center mt-10">Noch keine Rezepte.</p>':''}${state.userRecipes.filter(r=>r.title.toLowerCase().includes(state.cookbookSearch.toLowerCase())).map(r=>`<div onclick="state.selectedRecipeId=${r.id}; transitionTo('recipe-detail')" class="bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 shadow-sm mb-4 cursor-pointer"><div class="w-20 h-20 bg-gray-100 rounded-xl overflow-hidden shrink-0"><img src="${r.image}" class="w-full h-full object-cover"></div><div class="flex-1 flex flex-col justify-center"><h3 class="font-bold text-gray-800 mb-1">${r.title}</h3><div class="text-xs text-gray-500">${r.ingredients.length} Zutaten</div></div></div>`).join('')}</div></div>`;
+        const ScreenCookbook = () => `
+            <div class="flex flex-col h-full bg-white w-full relative"><div class="p-6 pt-14 border-b bg-white z-10 sticky top-0"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold">Kochbuch</h2><button onclick="transitionTo('add-recipe')" class="bg-black text-white w-8 h-8 rounded-full flex items-center justify-center"><i class="fas fa-plus"></i></button></div><input type="text" placeholder="Suche..." class="w-full bg-gray-100 rounded-xl p-3 text-sm outline-none" oninput="state.cookbookSearch=this.value; render()"></div><div class="flex-1 overflow-y-auto p-6 pb-20 scroll-area">${state.userRecipes.length===0?'<p class="text-gray-400 text-center mt-10">Noch keine Rezepte.</p>':''}${state.userRecipes.filter(r=>r.title.toLowerCase().includes(state.cookbookSearch.toLowerCase())).map(r=>`<div onclick="state.selectedRecipeId=${r.id}; transitionTo('recipe-detail')" class="bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 shadow-sm mb-4 cursor-pointer"><div class="w-20 h-20 bg-gray-100 rounded-xl overflow-hidden shrink-0"><img src="${r.image}" class="w-full h-full object-cover"></div><div class="flex-1 flex flex-col justify-center"><h3 class="font-bold text-gray-800 mb-1">${r.title}</h3><div class="text-xs text-gray-500">${r.ingredients.length} Zutaten</div><div class="flex mt-2 text-amber-400 text-xs">${[1,2,3,4,5].map(s => `<i class="${r.myRating >= s ? 'fas' : 'far'} fa-star"></i>`).join('')}</div></div></div>`).join('')}</div></div>`;
 
         const ScreenShoppingList = () => `<div class="flex flex-col h-full bg-white w-full"><div class="p-6 pt-14 border-b flex justify-between items-center shrink-0"><h2 class="text-2xl font-bold">Einkaufsliste</h2><span class="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold">${state.cart.length}</span></div><div class="flex-1 overflow-y-auto p-6 scroll-area">${state.cart.length === 0 ? `<div class="flex flex-col items-center justify-center h-full opacity-40"><i class="fas fa-shopping-cart text-6xl mb-4"></i><p>Alles erledigt!</p></div>` : state.cart.map((item, i) => `<div class="flex items-center justify-between bg-gray-50 p-4 mb-3 rounded-xl border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-6 h-6 rounded-full border-2 border-gray-300"></div><span class="font-bold text-gray-700">${item}</span></div><button onclick="removeFromCart(${i})" class="text-gray-400 hover:text-red-500"><i class="fas fa-trash"></i></button></div>`).join('')}</div></div>`;
 
-        const ScreenRecipeDetail = () => { const r = state.userRecipes.find(x => x.id === state.selectedRecipeId); if(!r) {setTimeout(()=>transitionTo('cookbook'),0); return '';} return `<div class="flex flex-col h-full bg-white w-full slide-up z-50"><div class="relative h-64 shrink-0"><img src="${r.image}" class="w-full h-full object-cover"><button onclick="transitionTo('cookbook')" class="absolute top-6 left-6 w-10 h-10 bg-white/20 backdrop-blur rounded-full flex items-center justify-center text-white"><i class="fas fa-arrow-left"></i></button><div class="absolute bottom-0 left-0 p-6 text-white"><h2 class="text-2xl font-bold">${r.title}</h2></div></div><div class="flex-1 overflow-y-auto p-6 scroll-area"><h3 class="font-bold mb-2">Zutaten</h3><div class="space-y-2 mb-6">${r.ingredients.map(i => `<div class="flex justify-between border-b pb-2 text-sm"><span>${i.name}</span><b>${i.amount} ${i.unit}</b></div>`).join('')}</div><h3 class="font-bold mb-2">Zubereitung</h3><p class="text-sm text-gray-600">${r.desc}</p></div><div class="p-4 border-t shrink-0 safe-pb"><button onclick="cookRecipe()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-lg">Gekocht!</button></div></div>`; };
+        const ScreenRecipeDetail = () => { 
+            const r = state.userRecipes.find(x => x.id === state.selectedRecipeId); 
+            if(!r) {setTimeout(()=>transitionTo('cookbook'),0); return '';} 
+            return `
+            <div class="flex flex-col h-full bg-white w-full slide-up z-50">
+                <div class="relative h-64 shrink-0">
+                    <img src="${r.image}" class="w-full h-full object-cover">
+                    <button onclick="transitionTo('cookbook')" class="absolute top-6 left-6 w-10 h-10 bg-white/20 backdrop-blur rounded-full flex items-center justify-center text-white"><i class="fas fa-arrow-left"></i></button>
+                    <div class="absolute bottom-0 left-0 p-6 text-white"><h2 class="text-2xl font-bold">${r.title}</h2></div>
+                </div>
+                <div class="flex-1 overflow-y-auto p-6 scroll-area">
+                    <div class="bg-gray-50 p-4 rounded-xl mb-6 border border-gray-100">
+                        <h4 class="text-xs font-bold text-gray-500 uppercase mb-2">Bewertung</h4>
+                        <div class="flex gap-2 text-2xl text-gray-300">
+                            ${[1,2,3,4,5].map(s => `<i onclick="rateRecipe(${r.id}, ${s})" class="fas fa-star rating-star ${r.myRating >= s ? 'text-amber-400' : ''}"></i>`).join('')}
+                        </div>
+                    </div>
+                    <h3 class="font-bold mb-2">Zutaten</h3>
+                    <div class="space-y-2 mb-6">${r.ingredients.map(i => `<div class="flex justify-between border-b pb-2 text-sm"><span>${i.name}</span><b>${i.amount} ${i.unit}</b></div>`).join('')}</div>
+                    <h3 class="font-bold mb-2">Zubereitung</h3>
+                    <p class="text-sm text-gray-600">${r.desc}</p>
+                </div>
+                <div class="p-4 border-t shrink-0 safe-pb"><button onclick="cookRecipe()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-lg">Gekocht!</button></div>
+            </div>`; 
+        };
 
         const ScreenProfile = () => `
             <div class="flex flex-col h-full bg-white w-full">
